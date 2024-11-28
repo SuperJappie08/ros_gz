@@ -27,17 +27,15 @@
 #include <gz/rendering/RenderingIface.hh>
 #include <gz/rendering/Scene.hh>
 
-#include <ros/ros.h>
-#include <ros/advertise_options.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/fill_image.h>
-#include <sensor_msgs/point_cloud2_iterator.h>
+#include <rclcpp/init_options.hpp>
+#include <rclcpp/logger.hpp>
+#include <rclcpp/logging.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/fill_image.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 
-IGNITION_ADD_PLUGIN(
-  ros_gz_point_cloud::PointCloud,
-  gz::sim::System,
-  ros_gz_point_cloud::PointCloud::ISystemConfigure,
-  ros_gz_point_cloud::PointCloud::ISystemPostUpdate)
 
 using namespace ros_gz_point_cloud;
 
@@ -123,7 +121,7 @@ public:
   /// \brief Message populated with latest image from RGB camera.
 
 public:
-  sensor_msgs::Image rgb_image_msg_;
+  sensor_msgs::msg::Image rgb_image_msg_;
 
   /// \brief Connection to depth frame event.
 
@@ -138,12 +136,12 @@ public:
   /// \brief Node to publish ROS messages.
 
 public:
-  std::unique_ptr < ros::NodeHandle > rosnode_;
+  rclcpp::Node::UniquePtr rosnode_;
 
   /// \brief Point cloud ROS publisher.
 
 public:
-  ros::Publisher pc_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pc_pub_;
 
   /// \brief Current simulation time.
 
@@ -184,6 +182,8 @@ void PointCloud::Configure(
   gz::sim::EntityComponentManager & _ecm,
   gz::sim::EventManager &)
 {
+  rclcpp::Logger logger = rclcpp::get_logger("ros_gz_point_cloud");
+
   this->dataPtr->entity_ = _entity;
 
   if (_ecm.Component < gz::sim::components::RgbdCamera > (_entity) != nullptr) {
@@ -193,18 +193,16 @@ void PointCloud::Configure(
   } else if (_ecm.Component < gz::sim::components::GpuLidar > (_entity) != nullptr) {
     this->dataPtr->type_ = SensorType::GPU_LIDAR;
   } else {
-    ROS_ERROR_NAMED(
-      "ros_gz_point_cloud",
-      "Point cloud plugin must be attached to an RGBD camera, depth camera or GPU lidar.");
+    RCLCPP_ERROR(logger,
+                 "Point cloud plugin must be attached to an RGBD camera, depth camera or GPU lidar.");
     return;
   }
 
   // Initialize ROS
-  if (!ros::isInitialized()) {
-    int argc = 0;
-    char ** argv = NULL;
-    ros::init(argc, argv, "ignition", ros::init_options::NoSigintHandler);
-    ROS_INFO_NAMED("ros_gz_point_cloud", "Initialized ROS");
+  if (!rclcpp::ok()) {
+    // TODO: Maybe the signal handlers need to be not-installed
+    rclcpp::init(0, nullptr);
+    RCLCPP_ERROR(logger, "Initialized ROS");
   }
 
   // Sensor scoped name
@@ -212,11 +210,11 @@ void PointCloud::Configure(
 
   // ROS node
   auto ns = _sdf->Get < std::string > ("namespace", scoped_name).first;
-  this->dataPtr->rosnode_ = std::make_unique < ros::NodeHandle > (ns);
+  this->dataPtr->rosnode_ = rclcpp::Node::make_unique("gazebo", ns);
 
   // Publisher
   auto topic = _sdf->Get < std::string > ("topic", "points").first;
-  this->dataPtr->pc_pub_ = this->dataPtr->rosnode_->advertise < sensor_msgs::PointCloud2 >
+  this->dataPtr->pc_pub_ = this->dataPtr->rosnode_->create_publisher<sensor_msgs::msg::PointCloud2> 
     (topic, 1);
 
   // TF frame ID
@@ -287,8 +285,8 @@ void PointCloudPrivate::LoadDepthCamera(
   this->depth_camera_ =
     std::dynamic_pointer_cast < gz::rendering::DepthCamera > (sensor);
   if (!this->depth_camera_) {
-    ROS_ERROR_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Rendering sensor named [%s] is not a depth camera", sensor_name.c_str());
     return;
   }
@@ -317,8 +315,8 @@ void PointCloudPrivate::LoadRgbCamera(
 
   this->rgb_camera_ = std::dynamic_pointer_cast < gz::rendering::Camera > (sensor);
   if (!this->rgb_camera_) {
-    ROS_ERROR_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Rendering sensor named [%s] is not an RGB camera", sensor_name.c_str());
     return;
   }
@@ -344,8 +342,8 @@ void PointCloudPrivate::LoadGpuRays(
   this->gpu_rays_ =
     std::dynamic_pointer_cast < gz::rendering::GpuRays > (sensor);
   if (!this->gpu_rays_) {
-    ROS_ERROR_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_ERROR(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Rendering sensor named [%s] is not a depth camera", sensor_name.c_str());
     return;
   }
@@ -364,31 +362,31 @@ void PointCloudPrivate::OnNewDepthFrame(
   unsigned int _channels,
   const std::string & _format)
 {
-  if (this->pc_pub_.getNumSubscribers() <= 0 || _height == 0 || _width == 0) {
+  if (this->pc_pub_->get_subscription_count() <= 0 || _height == 0 || _width == 0) {
     return;
   }
 
   // Just sanity check, but don't prevent publishing
   if (this->type_ == SensorType::RGBD_CAMERA && _channels != 1) {
-    ROS_WARN_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_WARN(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Expected depth image to have 1 channel, but it has [%i]", _channels);
   }
   if (this->type_ == SensorType::GPU_LIDAR && _channels != 3) {
-    ROS_WARN_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_WARN(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Expected GPU rays to have 3 channels, but it has [%i]", _channels);
   }
   if ((this->type_ == SensorType::RGBD_CAMERA ||
     this->type_ == SensorType::DEPTH_CAMERA) && _format != "FLOAT32")
   {
-    ROS_WARN_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_WARN(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Expected depth image to have [FLOAT32] format, but it has [%s]", _format.c_str());
   }
   if (this->type_ == SensorType::GPU_LIDAR && _format != "PF_FLOAT32_RGB") {
-    ROS_WARN_NAMED(
-      "ros_gz_point_cloud",
+    RCLCPP_WARN(
+      rclcpp::get_logger("ros_gz_point_cloud"),
       "Expected GPU rays to have [PF_FLOAT32_RGB] format, but it has [%s]", _format.c_str());
   }
 
@@ -397,10 +395,10 @@ void PointCloudPrivate::OnNewDepthFrame(
   // https://github.com/ros-simulation/gazebo_ros_pkgs/blob/kinetic-devel/gazebo_plugins/src/gazebo_ros_depth_camera.cpp
   auto sec_nsec = gz::math::durationToSecNsec(this->current_time_);
 
-  sensor_msgs::PointCloud2 msg;
+  sensor_msgs::msg::PointCloud2 msg;
   msg.header.frame_id = this->frame_id_;
   msg.header.stamp.sec = sec_nsec.first;
-  msg.header.stamp.nsec = sec_nsec.second;
+  msg.header.stamp.nanosec = sec_nsec.second;
   msg.width = _width;
   msg.height = _height;
   msg.row_step = msg.point_step * _width;
@@ -419,7 +417,7 @@ void PointCloudPrivate::OnNewDepthFrame(
 
   if (this->rgb_camera_) {
     this->rgb_camera_->Capture(this->rgb_image_);
-    fillImage(
+    sensor_msgs::fillImage(
       this->rgb_image_msg_, sensor_msgs::image_encodings::RGB8, _height,
       _width, 3 * _width, this->rgb_image_.Data < unsigned char > ());
   }
@@ -523,5 +521,11 @@ void PointCloudPrivate::OnNewDepthFrame(
     inclination += vertical_angle_step;
   }
 
-  this->pc_pub_.publish(msg);
+  this->pc_pub_->publish(msg);
 }
+
+GZ_ADD_PLUGIN(
+  ros_gz_point_cloud::PointCloud,
+  gz::sim::System,
+  ros_gz_point_cloud::PointCloud::ISystemConfigure,
+  ros_gz_point_cloud::PointCloud::ISystemPostUpdate)

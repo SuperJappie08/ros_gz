@@ -8,13 +8,21 @@
 
   <author>Louise Poubel</author>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>ignition-gazebo2</depend>
-  <depend>ignition-rendering2</depend>
-  <depend>ignition-sensors2</depend>
-  <depend>roscpp</depend>
+  <!-- <depend>ignition-gazebo2</depend> -->
+  <depend>gz_sim_vendor</depend>
+  <!-- <depend>ignition-rendering2</depend> -->
+  <depend>gz_rendering_vendor</depend>
+  <!-- <depend>ignition-sensors2</depend> -->
+  <depend>gz_sensors_vendor</depend>
+  <depend>gz_plugin_vendor</depend>
+  <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
 
-  <exec_depend>message_runtime</exec_depend>
+  <!-- <exec_depend>message_runtime</exec_depend> -->
+  
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>
