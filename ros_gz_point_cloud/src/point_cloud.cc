@@ -19,6 +19,7 @@
 #include <gz/sim/components/GpuLidar.hh>
 #include <gz/sim/components/RgbdCamera.hh>
 #include <gz/sim/Util.hh>
+#include <gz/sim/rendering/Events.hh>
 #include <gz/plugin/Register.hh>
 #include <gz/rendering/Camera.hh>
 #include <gz/rendering/DepthCamera.hh>
@@ -87,6 +88,19 @@ public:
 
 public:
   void LoadGpuRays(const gz::sim::EntityComponentManager & _ecm);
+
+/* Intial attempt, kept for future Reference.
+
+  // / \brief Retrieve the Scene from the Renderer.
+
+public:
+  void AcquireScene();
+
+  // / \brief Acquire Scene Event Handle
+
+public:
+  gz::common::ConnectionPtr scene_connection_;
+*/
 
   /// \brief Rendering scene which manages the cameras.
 
@@ -180,7 +194,7 @@ void PointCloud::Configure(
   const gz::sim::Entity & _entity,
   const std::shared_ptr < const sdf::Element > & _sdf,
   gz::sim::EntityComponentManager & _ecm,
-  gz::sim::EventManager &)
+  gz::sim::EventManager & _eventMgr)
 {
   rclcpp::Logger logger = rclcpp::get_logger("ros_gz_point_cloud");
 
@@ -223,6 +237,9 @@ void PointCloud::Configure(
   // Rendering engine and scene
   this->dataPtr->engine_name_ = _sdf->Get < std::string > ("engine", "ogre2").first;
   this->dataPtr->scene_name_ = _sdf->Get < std::string > ("scene", "scene").first;
+
+  this->connection_ =
+    _eventMgr.Connect<gz::sim::events::PostRender>(std::bind(&PointCloud::PerformRenderingOperations, this));
 }
 
 //////////////////////////////////////////////////
@@ -232,17 +249,11 @@ void PointCloud::PostUpdate(
 {
   this->dataPtr->current_time_ = _info.simTime;
 
-  // Find engine / scene
-  if (!this->dataPtr->scene_) {
-    auto engine = gz::rendering::engine(this->dataPtr->engine_name_);
-    if (!engine) {
-      return;
-    }
+  if (nullptr == this->dataPtr->scene_) {
+    this->dataPtr->scene_ = this->scene_;
 
-    this->dataPtr->scene_ = engine->SceneByName(this->dataPtr->scene_name_);
-    if (!this->dataPtr->scene_) {
+    if (nullptr == this->dataPtr->scene_)
       return;
-    }
   }
 
   // Get rendering objects
@@ -262,6 +273,88 @@ void PointCloud::PostUpdate(
   {
     this->dataPtr->LoadGpuRays(_ecm);
   }
+}
+
+/* Intial attempt, kept for future Reference.
+//////////////////////////////////////////////////
+void PointCloudPrivate::AcquireScene() {
+    // Find engine / scene
+  if (nullptr == this->scene_) {
+    auto engine = gz::rendering::engine(this->engine_name_);
+    if (!engine) {
+      return;
+    }
+
+    this->scene_ = engine->SceneByName(this->scene_name_);
+
+    if (nullptr == this->scene_) {
+      RCLCPP_INFO(this->rosnode_->get_logger(), "The scene has not been found");
+      return;
+    }
+  }
+}
+*/
+
+//////////////////////////////////////////////////
+// Based on the Server Render Plugin tutorial
+void PointCloud::PerformRenderingOperations()
+{
+  if (nullptr == this->scene_)
+  {
+    this->FindScene();
+  }
+
+  if (nullptr == this->scene_)
+    return;
+}
+
+/////////////////////////////////////////////////
+// Based on the Server Render Plugin tutorial
+void PointCloud::FindScene()
+{
+  auto loadedEngNames = gz::rendering::loadedEngines();
+  if (loadedEngNames.empty())
+  {
+    gzdbg << "No rendering engine is loaded yet" << std::endl;
+    return;
+  }
+
+  // assume there is only one engine loaded
+  auto engineName = this->dataPtr->engine_name_;
+  auto engine = gz::rendering::engine(engineName);
+  if (!engine)
+  {
+    gzerr << "Internal error: failed to load engine [" << engineName
+      << "]. Grid plugin won't work." << std::endl;
+    return;
+  }
+
+  if (engine->SceneCount() == 0)
+  {
+    gzdbg << "No scene has been created yet" << std::endl;
+    return;
+  }
+
+  // Get the scene
+  auto scenePtr = engine->SceneByName(this->dataPtr->scene_name_);
+  if (nullptr == scenePtr)
+  {
+    gzerr << "Internal error: scene is null." << std::endl;
+    return;
+  }
+
+  if (engine->SceneCount() > 1)
+  {
+    gzdbg << "More than one scene is available. "
+      << "Using scene [" << scene_->Name() << "]" << std::endl;
+  }
+
+  if (!scenePtr->IsInitialized() || nullptr == scenePtr->RootVisual())
+  {
+    return;
+  }
+
+  this->scene_ = scenePtr;
 }
 
 //////////////////////////////////////////////////
@@ -363,6 +456,7 @@ void PointCloudPrivate::OnNewDepthFrame(
   const std::string & _format)
 {
   if (this->pc_pub_->get_subscription_count() <= 0 || _height == 0 || _width == 0) {
+    RCLCPP_INFO(rclcpp::get_logger("ros_gz_point_cloud"), "No subscribers for the point cloud. Skipping.");
     return;
   }
 
@@ -389,6 +483,11 @@ void PointCloudPrivate::OnNewDepthFrame(
       rclcpp::get_logger("ros_gz_point_cloud"),
       "Expected GPU rays to have [PF_FLOAT32_RGB] format, but it has [%s]", _format.c_str());
   }
+
+  RCLCPP_INFO(
+      rclcpp::get_logger("ros_gz_point_cloud"),
+      "Processed as expected preparing Point Cloud"
+  );
 
   // Fill message
   // Logic borrowed from

@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <gz/sim/System.hh>
+#include <gz/rendering/Scene.hh>
 
 namespace ros_gz_point_cloud
 {
@@ -65,6 +66,20 @@ public:
     void PostUpdate(
       const gz::sim::UpdateInfo & _info,
       const gz::sim::EntityComponentManager & _ecm) override;
+
+  /// \brief All rendering operations must happen within this call
+  private: void PerformRenderingOperations();
+
+  /// \brief Encapsulates the logic to find the rendering scene through the
+  /// render engine singleton.
+  private: void FindScene();
+
+  /// \brief Connection to pre-render event callback
+  private: gz::common::ConnectionPtr connection_{nullptr};
+
+  /// \brief Pointer to rendering scene
+  private: gz::rendering::ScenePtr scene_{nullptr};
+
 
     /// \brief Private data pointer.
 

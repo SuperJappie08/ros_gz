@@ -275,7 +275,7 @@
           <visualize>true</visualize>
           <topic>depth_camera</topic>
           <plugin
-            filename="RosGzPointCloud"
+            filename="ros-gz-point-cloud-system"
             name="ros_gz_point_cloud::PointCloud">
             <topic>points</topic>
             <frame_id>map</frame_id>
@@ -308,7 +308,7 @@
     <include>
       <pose>0 1 3 0.0 0.0 1.57</pose>
       <uri>
-      https://fuel.ignitionrobotics.org/1.0/openrobotics/models/Construction Cone
+      https://fuel.gazebosim.org/1.0/openrobotics/models/Construction Cone
       </uri>
     </include>
 
