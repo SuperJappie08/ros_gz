@@ -43,7 +43,7 @@ def generate_test_description():
     )
     process_under_test = Node(
         package='ros_gz_bridge',
-        executable='test_launch_action_subscriber',
+        executable='test_launch_action_subscriber_classic',
         output='screen'
     )
 
